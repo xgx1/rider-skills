@@ -157,4 +157,4 @@ Only useful with the UE editor running and RiderLink loaded. Rarely needed for a
 - `simulate_input` — simulate player input; each mode has its own named params.
 - `take_screenshot`, `viewport_camera`, `spawn_actor` — editor/game viewport control.
 - `get_solution_projects`, `get_project_dependencies` — solution structure; `--projectName` must be exactly as `get_solution_projects` returned it. Useful for confirming a new test module is actually part of the solution.
-- `xdebug_*` — debugger session control (breakpoints, stack, frame values, expression evaluation, stepping). For investigating a failing test at runtime rather than authoring one; see the `ue-live-debugging` skill.
+- `xdebug_*` — debugger session control (breakpoints, stack, frame values, expression evaluation, stepping). For investigating a failing test at runtime rather than authoring one; see the `>unreal-live-debugging` skill.

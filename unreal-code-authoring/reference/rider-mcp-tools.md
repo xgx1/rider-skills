@@ -183,4 +183,4 @@ Only useful with the UE editor running and RiderLink loaded.
 - `take_screenshot`, `viewport_camera`, `spawn_actor` — editor/game viewport control.
 - `get_run_configurations`, `execute_run_configuration` — list and launch run configurations.
 - `get_solution_projects`, `get_project_dependencies` — solution structure; `--projectName` must be exactly as `get_solution_projects` returned it.
-- `xdebug_*` — debugger session control (breakpoints, stack, frame values, expression evaluation, stepping). For runtime investigation rather than authoring; see the `ue-live-debugging` skill.
+- `xdebug_*` — debugger session control (breakpoints, stack, frame values, expression evaluation, stepping). For runtime investigation rather than authoring; see the `>unreal-live-debugging` skill.

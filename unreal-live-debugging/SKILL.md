@@ -1,5 +1,5 @@
 ---
-name: ue-live-debugging
+name: unreal-live-debugging
 description: "Use when debugging UE C++ crashes, runtime bugs, or unexpected behavior with Rider MCP available. Value over bash/grep: analyze_calls traces C++ call hierarchies (ReSharper backend); get_file_problems surfaces IDE-detected issues; get_symbol_info confirms API contracts; xdebug_set_breakpoint sets live breakpoints; ue_execute_python queries live PIE state. DO NOT TRIGGER for: pure build errors with no runtime component, net-new feature work, Blueprint-only work. When Rider MCP is unavailable, runs in reduced mode — Bash/Grep only, IDE diagnostics skipped."
 allowed-tools: Read Glob Grep Bash Write Edit ToolSearch
 metadata:
