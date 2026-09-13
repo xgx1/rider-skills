@@ -8,6 +8,8 @@ metadata:
 
 # UE Live Debugging
 
+> **Platform**: this machine runs Linux (Arch) — `bash` blocks are the default and directly executable. Windows-only steps live in `Windows (PowerShell)` subsections and are not mixed into Linux instructions.
+
 Rider MCP debugging workflow: find the suspect symbol, trace who calls it, see what the IDE already knows is wrong.
 
 ---
