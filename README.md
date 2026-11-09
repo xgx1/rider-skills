@@ -1,12 +1,12 @@
-[![official JetBrains project](http://jb.gg/badges/official.svg)](https://confluence.jetbrains.com/display/ALL/JetBrains+on+GitHub)
+[![official JetBrains project](https://jb.gg/badges/official.svg)](https://confluence.jetbrains.com/display/ALL/JetBrains+on+GitHub)
 
 # Rider Skills
 
-A set of [Agent Skills](https://docs.claude.com/en/docs/claude-code/skills) that give coding agents **IDE-grade code intelligence inside JetBrains Rider**. Instead of falling back to text edits, `grep`, and print debugging, these skills drive Rider's refactoring engine, debugger, code coverage data, and static analysis through the **Rider MCP server** — so a rename updates every resolved reference, a breakpoint inspects real runtime state, existing tests are located precisely, and diagnostics catch errors before a full build.
+A set of [Agent Skills](https://agentskills.io/) that give coding agents **IDE-grade code intelligence inside JetBrains Rider**. Instead of falling back to text edits, `grep`, and print debugging, these skills drive Rider's refactoring engine, debugger, code coverage data, and static analysis through the **Rider MCP server** — so a rename updates every resolved reference, a breakpoint inspects real runtime state, existing tests are located precisely, and diagnostics catch errors before a full build.
 
 ## What's included
 
-Two skills work across every Rider-supported language, one locates existing C# tests, and three are focused on Unreal Engine C++.
+Three skills work across every Rider-supported language, one locates existing C# tests, and three are focused on Unreal Engine C++.
 
 ### General — any Rider solution
 
@@ -14,8 +14,9 @@ Two skills work across every Rider-supported language, one locates existing C# t
 | --- | --- |
 | [`refactoring-code`](skills/refactoring-code/SKILL.md) | Semantic refactoring — rename, move types/namespaces, safe-delete, extract interface/base class/method, change signatures — resolved through the IDE's reference index instead of grep + text replace. |
 | [`debugging-code`](skills/debugging-code/SKILL.md) | Debugger-driven runtime root-cause analysis — set breakpoints and tracepoints, step, inspect frame values, and evaluate expressions to answer questions static reading can't. |
+| [`navigating-code`](skills/navigating-code/SKILL.md) | Semantic code navigation — find all usages of a symbol and all implementations of an interface, class or virtual member through the IDE reference index instead of grep. |
 
-Both cover .NET/C#, F#, VB, C++, Unity, Unreal Engine, XAML, Razor, and other mixed-language projects.
+All three cover .NET/C#, F#, VB, C++, Unity, Unreal Engine, XAML, Razor, and other mixed-language projects.
 
 ### C#/.NET
 
@@ -49,7 +50,7 @@ Each skill's `SKILL.md` teaches the workflow, decision points, and guardrails; w
 
 ### 1. Connect the Rider MCP server
 
-In Rider, open **Settings → Tools → MCP Server**, enable the server, and click **Auto-Configure** for your client (Claude Code, Codex, etc.) — Rider registers itself with the agent, no commands needed. Then run the agent from inside the solution folder Rider has open.
+In Rider, open **Settings → AI → IDE as MCP Server**, enable the server, and click **Auto-Configure** for your client (Claude Code, Codex, etc.) — Rider registers itself with the agent, no commands needed. Then run the agent from inside the solution folder Rider has open.
 
 ### 2. Install the skills
 
@@ -77,15 +78,18 @@ For agents without plugin support, copy or symlink individual skill folders from
 
 | Path | Contents |
 | --- | --- |
-| `skills/` | All six skills, one folder each. |
+| `skills/` | All skills, one folder each. |
 | `skills/<skill>/SKILL.md` | Skill definition — frontmatter (name, description, allowed tools) and workflow. |
 | `skills/<skill>/reference/` | Progressive-disclosure reference: tool contracts, patterns, conventions loaded on demand. |
+| `skills/<skill>/metadata.json` | Skill version and a hash of the skill's files. |
 | `.claude-plugin/` | Claude Code plugin (`plugin.json`) and marketplace (`marketplace.json`) metadata. |
 | `.codex-plugin/` | Codex plugin metadata (`plugin.json`). |
 
 ## Contributing
 
 Issues and pull requests are welcome — improvements to workflows, reference contracts, and coverage of additional Rider languages and UE frameworks.
+
+The `Validate` workflow checks every pull request: skill frontmatter against the Agent Skills specification, the plugin manifests, local Markdown links, and each skill's `metadata.json`. When you change a skill, raise its `version` and set the `hash` that `python3 .github/scripts/check_skill_metadata.py` prints.
 
 ## License
 

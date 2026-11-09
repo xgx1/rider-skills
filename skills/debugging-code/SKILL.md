@@ -10,6 +10,8 @@ Debugger-first runtime root-cause analysis for solutions opened in Rider, includ
 
 Invoke every tool through `execute_tool(command="<tool> --arg value ...")`. Do not call the underlying handles directly. Read `reference/tools.md` only for the specific tool you are about to call; do not pre-load the whole tree.
 
+`xdebug_set_breakpoints --breakpoints` takes one quoted JSON array, for example `--breakpoints '[{"filePath":"Program.cs","line":42},{"filePath":"Worker.cs","line":18,"condition":"id == 7"}]'`.
+
 ## Goal
 Use debugger evidence to answer concrete runtime questions when static code reading is not enough, or to confirm ideas or results from static analysis — including whether execution reaches or does not reach an agent-selected code location via a breakpoint or tracepoint.
 
@@ -32,7 +34,7 @@ If the codebase domain contains debug-related concepts, reason explicitly about 
 
 ## Activation Gate (tool availability)
 Use this skill only when the debugger MCP tools are available in the current session. Minimum required set:
-- `xdebug_set_breakpoint`
+- `xdebug_set_breakpoints`
 - `xdebug_start_debugger_session`
 - `xdebug_control_session`
 - `xdebug_get_stack`
@@ -59,6 +61,7 @@ Do not assert runtime conclusions before this evidence is captured unless you ha
 1. `AUTO`: the agent can run and rerun the scenario directly (run config, test, executable, endpoint). Use `xdebug_start_debugger_session` to launch with debugging, or `execute_run_configuration` for a non-debug run when you only need output or exit code.
 2. `ASSISTED`: reproduction requires a user-only action (UI flow, auth, external dependency, hardware interaction).
 3. `HYBRID`: try `AUTO` once or twice, then switch to `ASSISTED` if the failure does not reproduce.
+4. `ATTACH`: the target process is already running (started outside the IDE, long-lived host, game editor, service) and must not be restarted. Use `xdebug_attach_to_process --pid <pid>`; set the required breakpoints *before* attaching when the target may finish quickly. If the result is `selection_required`, promptly repeat with the same PID and one exact returned `availableDebuggers` name as `--debuggerKind`; on `attached`, take `sessionId` from the result. See [reference/tools/xdebug_attach_to_process.md](reference/tools/xdebug_attach_to_process.md).
 
 If the candidate target is a test, default to `AUTO`. Never ask the user to reproduce before breakpoints are prepared.
 
@@ -77,7 +80,9 @@ Do not modify the user's project setup (NuGet packages, target framework, `.cspr
 ## Session Binding
 - Before preparing breakpoints or launching, call `execute_tool(command="xdebug_get_debugger_status")`.
 - If an active relevant session exists, continue inside it instead of starting another.
-- Capture the exact `sessionId` and reuse it in all session-scoped calls. If a session stops, times out, or disappears, refresh it via `xdebug_get_debugger_status` before reusing.
+- Capture the exact `sessionId` and reuse it in all session-scoped calls.
+- Keep the returned `sessionId`. Use `xdebug_get_debugger_status --sessionId <id>` after the session stops to read its retained state.
+- Active-only tools return `SESSION_NOT_ACTIVE` for a retained stopped session. `SESSION_EXPIRED` means that its diagnostics left the five-session retention window.
 - After the paused location changes, do not reuse a stale `frameIndex` or `path`; re-read from the fresh `xdebug_get_stack`.
 
 ## Run Configuration Resolution
@@ -87,11 +92,14 @@ Do not modify the user's project setup (NuGet packages, target framework, `.cspr
 ## Breakpoint Ownership And Hygiene
 - Always start with `execute_tool(command="xdebug_list_breakpoints")` and treat the returned `owner` (`user` / `agent`) as source of truth.
 - Build a baseline snapshot (`breakpointId -> enabled`) before modifying anything.
-- Temporarily disable `owner=user` breakpoints not required for the current path via `execute_tool(command="xdebug_set_breakpoint --breakpointId <id> --enabled false")`; restore them only once, at the end of the debugger cycle.
-- Avoid broad breakpoint churn between iterations. `xdebug_remove_breakpoint` defaults to `--owner agent`; for global cleanup run two calls: `--owner agent` then `--owner user`.
+- Temporarily disable `owner=user` breakpoints not required for the current path with `xdebug_set_breakpoints` ID-mode items; restore them only once, at the end of the debugger cycle.
+- Avoid broad breakpoint churn between iterations. Each `xdebug_remove_breakpoints --breakpoints` item defaults to `owner=agent`. For global cleanup, use `[{"owner":"agent"},{"owner":"user"}]`.
 
 ## Breakpoint Targeting Modes
-`xdebug_set_breakpoint` has two mutually exclusive targeting modes (location vs `breakpointId`) — never mix them in one call, and in `breakpointId` mode pass the full desired state since provided fields become the result. After each call confirm the returned `lineText` matches the intended line. Modes and the full contract: [reference/tools/xdebug_set_breakpoint.md](reference/tools/xdebug_set_breakpoint.md).
+Each `xdebug_set_breakpoints` item has two mutually exclusive targeting modes (location vs `breakpointId`) — never mix them in one item, and in `breakpointId` mode pass the full desired state. Results preserve input order and report per-item success/error; confirm every successful result's `lineText`. Full contract: [reference/tools/xdebug_set_breakpoints.md](reference/tools/xdebug_set_breakpoints.md).
+
+## Noisy .NET Exceptions
+When a session keeps suspending on an expected or handled exception that is not the one under investigation (a first-chance `System.OperationCanceledException`, for example), mute that single type with `execute_tool(command="xdebug_ignore_exception --exceptionType System.OperationCanceledException")`, then `RESUME`. This sets the exception breakpoint's suspend policy to `NONE` and is **persistent** — it survives the session, exactly like unchecking the exception in the UI — so use it only for the type that is genuinely in the way, and never as a blanket way to silence exception stops. Prefer it over globally muting breakpoints, which would also drop the breakpoints you are relying on.
 
 ## Library And Decompiled Source Debugging
 Breakpoints can be set in library and framework code. `read_file` reads external source files and the bundled decompiler output for assemblies (and SourceLink / PDB-resolved originals when available). To obtain a path:
@@ -114,40 +122,61 @@ Debugger Run Progress:
 - [ ] Snapshot the breakpoint baseline; disable irrelevant user breakpoints
 - [ ] Set initial breakpoints; verify `lineText` for each
 - [ ] `xdebug_start_debugger_session ...` OR continue inside the existing session
-- [ ] After a fresh start or RESUME: `xdebug_control_session --action WAIT_FOR_PAUSE`
+- [ ] Wait for an expected pause after a fresh start; after RESUME, inspect its returned state
 - [ ] At each pause: `xdebug_get_stack` + values / eval (`xdebug_get_frame_values`, `xdebug_get_value_by_path`, `xdebug_evaluate_expression`)
 - [ ] Decide next movement (`STEP_OVER` / `STEP_INTO` when evidence is nearby, OR a new breakpoint then `RESUME`)
-- [ ] For tracepoints: `xdebug_control_session --action DRAIN_EVENTS`
+- [ ] For tracepoints: `xdebug_control_session --action DRAIN_EVENTS`, then read the program's own output with `xdebug_get_process_output`
 - [ ] Stop on the first proven incorrect state transition or a stated blocker
 - [ ] Wrap-up (cleanup + report)
 ```
 
 Discipline applied at every step:
-- Never `RESUME` without an explicitly named expected next stop; after every `RESUME`, always `WAIT_FOR_PAUSE`.
+- If the session is paused, use `--action RESUME --timeout 0` to finish an inspection or let tracepoints run.
+- Leave a running session running.
+- To continue to an expected suspending breakpoint, use `--action RESUME` and inspect its returned state.
+- Call `WAIT_FOR_PAUSE` only if the session is still running and that expected stop remains relevant.
 - On wait timeout: `PAUSE`, re-check enabled breakpoints and the expected path; after 2 consecutive timeouts, stop retrying that wait and expand breakpoint coverage.
 - Never assert a root cause without concrete runtime values, and make no runtime-behavior edits before it is proven.
 - Don't stop at a downstream symptom — climb frames / rewind to the producing state; if the needed location is already past, restart with an earlier breakpoint.
 - When a frame points to external / decompiled code, `read_file` it and set deeper breakpoints there; don't skip it.
 
 ## Events And Tracepoints
-- `breakpointErrorsTail` / `tracepointOutputsTail` (`xdebug_control_session`; see its reference) are **populated only by JVM-based debuggers**. Rider's debugger is not JVM-based, so do not rely on them: preflight a `--condition` with `xdebug_evaluate_expression` in a paused frame, and confirm tracepoint logging from the program's run/console output.
-- For tracepoint-style logging without suspension, use `execute_tool(command="xdebug_set_breakpoint --filePath <path> --line <n> --isLogMessage true --suspendPolicy NONE")` (or `--isLogStack true`).
+- `breakpointErrorsTail` / `tracepointOutputsTail` (`xdebug_control_session`; see its reference) are **populated only by JVM-based debuggers**. Rider's debugger is not JVM-based, so do not rely on them: preflight a `condition` expression with `xdebug_evaluate_expression` in a paused frame, and read tracepoint logging from the program's own output via `execute_tool(command="xdebug_get_process_output --sessionId <id>")`.
+- For tracepoint-style logging without suspension, use an `xdebug_set_breakpoints` item with `isLogMessage=true` or `isLogStack=true` and `suspendPolicy=NONE`.
 
 ## Expression Discipline
 `xdebug_evaluate_expression` and `xdebug_set_variable` take a raw expression in the current frame's language (C#, C++, F#, or VB) — see their reference files for the exact input rules. Beyond that contract:
-- For global / static symbols in `--condition` and `--expression`, prefer fully-qualified names to avoid `Unresolved reference` caused by missing imports in the debugger expression context.
+- For global / static symbols in the `condition` field and `--expression`, prefer fully-qualified names to avoid `Unresolved reference` caused by missing imports in the debugger expression context.
 - The router parses the outer `execute_tool(command=...)` line with `ParametersListUtil`. When the expression contains double quotes, wrap the outer command string in single quotes; when it contains single quotes, wrap the outer in double quotes; avoid mixing both without escaping.
-- If paused, preflight a risky `--condition` expression with `xdebug_evaluate_expression` before relying on it.
+- If paused, preflight a risky `condition` expression with `xdebug_evaluate_expression` before relying on it.
 
 ## Frame Climbing And Rewind
 When stopped in a frame, inspect upper frames to reconstruct data provenance: identify who passed the current values and the earliest caller frame where state became incorrect. If the required location is already passed: restart the run with an earlier breakpoint (`AUTO`), or set an earlier breakpoint and ask the user to reproduce again (`ASSISTED`). Do not continue from a point already too late for the needed evidence. When a frame points to external / decompiled code, read it with `read_file` and set breakpoints there if needed to trace provenance deeper.
+
+## .NET Async Waits
+Use `xdebug_get_async_tasks` when an `await` never completes, a `.Wait()`/`.Result` call hangs, or the thread stack does not show who called the paused code because the chain crosses an `await`.
+It needs a paused .NET session (.NET or .NET Framework); Mono and Unity are unsupported. Read [the graph reference](reference/tools/xdebug_get_async_tasks.md) before calling it, and [the stack reference](reference/tools/xdebug_get_async_task_stack.md) before expanding a node.
+
+- Call `execute_tool(command="xdebug_get_async_tasks --sessionId <id>")` with the captured session ID. The result is paged; `totalCount` is the full node count. The first page holds `deadlocked`, `blocked`, and `active` nodes first, so start there and fetch the next page with `--offset` only when a `waitsForNodeIds` entry is missing.
+- The graph holds every incomplete `Task` plus the threads blocked in a synchronous wait on a task. Running threads and completed tasks are not nodes.
+- Each node carries `initialLocation` (the entry method) and `currentLocation` (the current `await` or wait point), like the columns of the Rider Tasks view. Most questions are answered by these two. `frameCount` tells how long the full chain is.
+- Start from `thread`, `blocked`, or `deadlocked` nodes. Follow `waitsForNodeIds` until you reach an `awaiting` or `scheduled` task with an empty list. Its `currentLocation` is the stuck operation.
+- To find who waits for a node, search the other nodes' `waitsForNodeIds` for its `id`. Keep a visited set; a cycle is a deadlock.
+- Call `execute_tool(command="xdebug_get_async_task_stack --sessionId <id> --nodeId <id>")` only when the two locations are not enough: to find the caller of a shared helper, or to read every `await` on the path. Frames go from the entry method (index 0) to the current wait point; they are method chains, not evaluation frames. Each frame carries `presentation` and, when symbols exist, `file` and `line`; use them to read the code or to place a breakpoint.
+- A `thread` node blocked on an `awaiting` task is a sync-over-async candidate: check whether the awaited continuation needs that same thread (UI or classic ASP.NET context). The graph does not model synchronization contexts.
+- A `scheduled` leaf either has not started or waits on something the graph does not model: a timer (`Task.Delay`), I/O, or a `TaskCompletionSource` that nobody completes. It has no `currentLocation`; use `initialLocation` to find the producer in code and set a breakpoint there.
+- `deadlocked` means a thread-level `lock`/`Monitor` cycle, not an async wait cycle. Inspect the involved threads with `xdebug_get_stack`.
+- `threadId` is present for `thread` nodes and for `task` nodes that run on a thread right now. To read values, locate that thread in `xdebug_get_threads` (`threadId` matches the `@<id>` suffix of the thread name) and use a fresh `xdebug_get_stack`.
+- Node `id` values stay valid within one pause; both tools share them. Do not reuse them after `RESUME`, `STEP_*`, or `xdebug_run_to_line`. `taskId` is the runtime `Task.Id` and stays stable across pauses while the task lives.
+- The graph is computed once per pause and both tools read the same snapshot. Call them for a concrete async question; fetch again after the pause changes.
+- If task data is unsupported or unavailable, fall back to thread stacks and state that async dependencies remain unverified.
 
 ## Evidence Checklist
 Before concluding, capture: the exact failing message/body; exception type and/or status code; the first location where state diverges from expected; concrete offending keys/values (and counts when relevant); the origin/provenance of wrong data; why the pipeline allowed it.
 
 ## Wrap-up
 After debugging:
-1. Clean up: `execute_tool(command="xdebug_remove_breakpoint --owner agent")`, restore disabled user breakpoints to their baseline, and `execute_tool(command="xdebug_control_session --action STOP")` if the session is no longer needed.
+1. Clean up: `execute_tool(command="xdebug_remove_breakpoints --breakpoints '[{\"owner\":\"agent\"}]'")`, restore disabled user breakpoints to their baseline, and `execute_tool(command="xdebug_control_session --action STOP")` if the session is no longer needed.
 2. Report:
    - root cause in one sentence;
    - causal chain in 3-6 bullets;
@@ -157,4 +186,4 @@ After debugging:
 3. Next action depends on the user's goal: if they asked for diagnosis only, conclude with the report and a recommended next step; if the task implies a code change, implement the fix based on the proven root cause.
 
 ## Tool Reference
-See [reference/tools.md](reference/tools.md) for the signatures and parameter-by-parameter notes of the 13 `xdebug_*` MCP tools plus `get_run_configurations` / `execute_run_configuration`.
+See [reference/tools.md](reference/tools.md) for the signatures and parameter-by-parameter notes of the Rider debugger tools and `get_run_configurations` / `execute_run_configuration`.
